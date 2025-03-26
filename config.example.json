@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "di-linkedin": {
+      "command": "/opt/homebrew/bin/node",
+      "args": [
+        "/ABSOLUTE/PATH/TO/YOUR/build/index.js"
+      ],
+      "env": {
+        "AUTH0_DOMAIN": "auth.audiense.com"
+      }
+    }
+  }
+}

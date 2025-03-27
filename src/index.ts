@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getReports, getReportById, createReport, getReportInsights, getReportCategories, getTypeaheadSuggestions, getAccountDetails } from "./DiLinkedInClient/Client.js";
 import { AuthClient } from "./auth/AuthClient.js";
 import { JsonAudienceDefinition } from "./DiLinkedInClient/types.js";
-import { createTypeaheadFacetUrnSchema } from "./createTypeaheadFacetUrnSchema.js";
+import { typeaheadFacetUrnSchema } from "./DiLinkedInClient/TypeaheadFacetUrnSchema.js";
 import { ObjectId } from "bson";
 
 // MCP Server instance
@@ -243,7 +243,7 @@ server.tool(
   "get-linkedin-typeahead",
   "Get LinkedIn typeahead suggestions for a specific facet and query. Use the facet parameter to specify which type of suggestions you want to retrieve.",
   {
-    facet: createTypeaheadFacetUrnSchema().describe(
+    facet: typeaheadFacetUrnSchema.describe(
       "The facet URN to search for suggestions. Available facets include: " +
       "locations, profileLocations, titles, titlesPast, employersPast, followedCompanies, " +
       "interests, skills, employers, degrees, memberBehaviors, schools, companyCategory, " +

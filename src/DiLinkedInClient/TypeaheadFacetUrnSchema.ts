@@ -1,9 +1,8 @@
 import { z } from "zod";
-import { TypeaheadFacetUrn } from "./DiLinkedInClient/types.js";
+import { TypeaheadFacetUrn } from "./types.js";
 
 // Helper function to create a Zod schema for typeahead facet URNs
-export const createTypeaheadFacetUrnSchema = () => {
-  return z.enum([
+export const typeaheadFacetUrnSchema = z.enum([
     "urn:li:adTargetingFacet:locations",
     "urn:li:adTargetingFacet:profileLocations",
     "urn:li:adTargetingFacet:titles",
@@ -24,4 +23,3 @@ export const createTypeaheadFacetUrnSchema = () => {
     "urn:li:adTargetingFacet:employersAll",
     "urn:li:adTargetingFacet:fieldsOfStudy"
   ] as [TypeaheadFacetUrn, ...TypeaheadFacetUrn[]]);
-};

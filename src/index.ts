@@ -124,7 +124,7 @@ server.tool(
       exclude: z.object({
         or: z.record(z.array(z.string())).describe("Object with facet URNs as keys and arrays of facet values as values")
       }).optional().describe("Optional exclusion criteria for baseline")
-    }).optional().describe("The baseline definition (optional)"),
+    }).optional().describe("The baseline definition is mandatory"),
   },
   async ({ title, audienceDefinition, baselineDefinition }) => {
     try {

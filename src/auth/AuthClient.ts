@@ -127,7 +127,7 @@ export class AuthClient {
 
   private getAccessTokenFromCache(): string {
     if (!this.tokenCache) {
-      throw new Error('No token cache available');
+      throw new Error('No token cache available. Please request a new token using the tool "request-linkedin-token".');
     }
     return this.tokenCache.access_token;
   }

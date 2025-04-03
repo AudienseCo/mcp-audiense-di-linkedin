@@ -291,6 +291,9 @@ export type GetReportResponse = ReportDetail;
 export type GetReportInsightsResponse = SerializedInsight[];
 export type GetReportCategoriesResponse = SerializedMainCategoryCalculated[];
 export type GetTypeaheadSuggestionsResponse = TypeaheadSuggestion[];
+export interface EstimateAudienceResponse {
+  size: number;
+}
 
 // Valid facet URNs for typeahead endpoint
 export type TypeaheadFacetUrn =

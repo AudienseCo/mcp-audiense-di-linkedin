@@ -1,7 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { getReports, getReportById, createReport, getReportInsights, getReportCategories, getTypeaheadSuggestions, getAccountDetails } from "./DiLinkedInClient/Client.js";
+import {
+  getReports,
+  getReportById,
+  createReport,
+  getReportInsights,
+  getReportCategories,
+  getTypeaheadSuggestions,
+  getAccountDetails,
+  estimateAudience,
+} from "./DiLinkedInClient/Client.js";
 import { AuthClient } from "./auth/AuthClient.js";
 import { JsonAudienceDefinition } from "./DiLinkedInClient/types.js";
 import { typeaheadFacetUrnSchema } from "./DiLinkedInClient/TypeaheadFacetUrnSchema.js";
@@ -29,7 +38,7 @@ async function runServer() {
 server.tool(
   "get-linkedin-reports",
   "Get LinkedIn reports for the authorized user",
-  {  },
+  {},
   async () => {
     try {
       const data = await getReports();
@@ -98,36 +107,93 @@ server.tool(
  */
 server.tool(
   "create-linkedin-report",
-  "Create a new LinkedIn report with audience definition",
+  'Create a new LinkedIn report with audience definition.\
+   IMPORTANT RULES:\
+   1. Both audience definition and baseline definition are mandatory\
+   2. BEFORE creating a report, ALWAYS use the estimate-linkedin-audience tool to validate the audience size\
+   3. The estimated audience should typically be at least 1,000 members to get meaningful insights\
+   4. Audience definition must follow this structure: {"include": {"and": [{"or": {"FACET_URN": ["VALUE1", "VALUE2"]}}]}, "exclude": {"or": {"FACET_URN": ["VALUE1", "VALUE2"]}}} (exclude is optional)\
+   5. All complex boolean expressions must use the format above where each facet is an OR group, and multiple facets are combined with AND\
+   6. Boolean expressions like (A AND B) OR C must be converted to (A OR C) AND (B OR C)\
+   7. Use get-linkedin-typeahead tool to find valid values for facets\
+   8. Use list-linkedin-facet-values tool to see predefined values for facets\
+   9. Use list-linkedin-typeahead-facets tool to see available facets\
+   Example: {"audienceDefinition": {"include": {"and": [{"or": {"urn:li:adTargetingFacet:titles": ["Software Engineer"]}}]}}}\
+',
   {
     title: z.string().describe("The report title"),
-    audienceDefinition: z.object({
-      include: z.object({
-        and: z.array(
-          z.object({
-            or: z.record(z.array(z.string())).describe("Object with facet URNs as keys and arrays of facet values as values")
-          }).describe("OR clause for audience targeting")
-        )
-      }),
-      exclude: z.object({
-        or: z.record(z.array(z.string())).describe("Object with facet URNs as keys and arrays of facet values as values")
-      }).optional().describe("Optional exclusion criteria")
-    }).describe("The audience definition with inclusion and optional exclusion criteria"),
-    baselineDefinition: z.object({
-      include: z.object({
-        and: z.array(
-          z.object({
-            or: z.record(z.array(z.string())).describe("Object with facet URNs as keys and arrays of facet values as values")
-          }).describe("OR clause for baseline audience targeting")
-        )
-      }),
-      exclude: z.object({
-        or: z.record(z.array(z.string())).describe("Object with facet URNs as keys and arrays of facet values as values")
-      }).optional().describe("Optional exclusion criteria for baseline")
-    }).optional().describe("The baseline definition is mandatory"),
+    audienceDefinition: z
+      .object({
+        include: z.object({
+          and: z.array(
+            z
+              .object({
+                or: z
+                  .record(z.array(z.string()))
+                  .describe(
+                    "Object with facet URNs as keys and arrays of facet values as values"
+                  ),
+              })
+              .describe("OR clause for audience targeting")
+          ),
+        }),
+        exclude: z
+          .object({
+            or: z
+              .record(z.array(z.string()))
+              .describe(
+                "Object with facet URNs as keys and arrays of facet values as values"
+              ),
+          })
+          .optional()
+          .describe("Optional exclusion criteria"),
+      })
+      .describe(
+        "The audience definition with inclusion and optional exclusion criteria"
+      ),
+    baselineDefinition: z
+      .object({
+        include: z.object({
+          and: z.array(
+            z
+              .object({
+                or: z
+                  .record(z.array(z.string()))
+                  .describe(
+                    "Object with facet URNs as keys and arrays of facet values as values"
+                  ),
+              })
+              .describe("OR clause for baseline audience targeting")
+          ),
+        }),
+        exclude: z
+          .object({
+            or: z
+              .record(z.array(z.string()))
+              .describe(
+                "Object with facet URNs as keys and arrays of facet values as values"
+              ),
+          })
+          .optional()
+          .describe("Optional exclusion criteria for baseline"),
+      })
+      .describe("The baseline definition is mandatory"),
   },
   async ({ title, audienceDefinition, baselineDefinition }) => {
     try {
+      // Check if baselineDefinition is provided since it's marked as optional in the schema but is actually required
+      if (!baselineDefinition) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Error: Baseline definition is mandatory. Please provide a baseline definition or ask the user to provide one.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
       JSON.parse(JSON.stringify(audienceDefinition));
       JSON.parse(JSON.stringify(baselineDefinition));
       const id = new ObjectId().toString();
@@ -135,7 +201,9 @@ server.tool(
         id,
         title,
         audienceDefinition: audienceDefinition as JsonAudienceDefinition,
-        baselineDefinition: baselineDefinition as JsonAudienceDefinition | undefined,
+        baselineDefinition: baselineDefinition as
+          | JsonAudienceDefinition
+          | undefined,
       });
 
       return {
@@ -170,7 +238,10 @@ server.tool(
   "Get LinkedIn insights for a specific report",
   {
     reportId: z.string().describe("The report ID"),
-    facetUrns: z.array(z.string()).optional().describe("Filter insights by facet URNs (optional)"),
+    facetUrns: z
+      .array(z.string())
+      .optional()
+      .describe("Filter insights by facet URNs (optional)"),
   },
   async ({ reportId, facetUrns }) => {
     try {
@@ -207,7 +278,10 @@ server.tool(
   "Get LinkedIn categories for a specific report",
   {
     reportId: z.string().describe("The report ID"),
-    urns: z.array(z.string()).optional().describe("Filter categories by URNs (optional)"),
+    urns: z
+      .array(z.string())
+      .optional()
+      .describe("Filter categories by URNs (optional)"),
   },
   async ({ reportId, urns }) => {
     try {
@@ -245,12 +319,17 @@ server.tool(
   {
     facet: typeaheadFacetUrnSchema.describe(
       "The facet URN to search for suggestions. Available facets include: " +
-      "locations, profileLocations, titles, titlesPast, employersPast, followedCompanies, " +
-      "interests, skills, employers, degrees, memberBehaviors, schools, companyCategory, " +
-      "titlesAll, industries, groups, firstDegreeConnectionCompanies, employersAll, fieldsOfStudy. " +
-      "Use with prefix 'urn:li:adTargetingFacet:' (e.g., 'urn:li:adTargetingFacet:locations')."
+        "locations, profileLocations, titles, titlesPast, employersPast, followedCompanies, " +
+        "interests, skills, employers, degrees, memberBehaviors, schools, companyCategory, " +
+        "titlesAll, industries, groups, firstDegreeConnectionCompanies, employersAll, fieldsOfStudy. " +
+        "Use with prefix 'urn:li:adTargetingFacet:' (e.g., 'urn:li:adTargetingFacet:locations')."
     ),
-    query: z.string().optional().describe("The search query (optional). Use this to filter suggestions by keyword."),
+    query: z
+      .string()
+      .optional()
+      .describe(
+        "The search query (optional). Use this to filter suggestions by keyword."
+      ),
   },
   async ({ facet, query }) => {
     try {
@@ -275,22 +354,26 @@ server.tool(
           "urn:li:adTargetingFacet:groups",
           "urn:li:adTargetingFacet:firstDegreeConnectionCompanies",
           "urn:li:adTargetingFacet:employersAll",
-          "urn:li:adTargetingFacet:fieldsOfStudy"
+          "urn:li:adTargetingFacet:fieldsOfStudy",
         ];
-        
+
         return {
           content: [
             {
               type: "text",
-              text: "Missing or invalid facet parameter. Available facets are:\n" + 
-                    availableFacets.join("\n"),
+              text:
+                "Missing or invalid facet parameter. Available facets are:\n" +
+                availableFacets.join("\n"),
             },
           ],
           isError: true,
         };
       }
-      
-      const data = await getTypeaheadSuggestions(facet as unknown as string, query as unknown as string);
+
+      const data = await getTypeaheadSuggestions(
+        facet as unknown as string,
+        query as unknown as string
+      );
 
       return {
         content: [
@@ -357,38 +440,98 @@ server.tool(
   "List all available facets that can be used with the get-linkedin-typeahead tool",
   {},
   async () => {
-    try {      
+    try {
       const facetsWithDescriptions = [
-        { facet: "urn:li:adTargetingFacet:locations", description: "Geographic locations" },
-        { facet: "urn:li:adTargetingFacet:profileLocations", description: "Profile locations" },
-        { facet: "urn:li:adTargetingFacet:titles", description: "Current job titles" },
-        { facet: "urn:li:adTargetingFacet:titlesPast", description: "Past job titles" },
-        { facet: "urn:li:adTargetingFacet:employersPast", description: "Past employers" },
-        { facet: "urn:li:adTargetingFacet:followedCompanies", description: "Companies followed by users" },
-        { facet: "urn:li:adTargetingFacet:interests", description: "User interests" },
-        { facet: "urn:li:adTargetingFacet:skills", description: "Professional skills" },
-        { facet: "urn:li:adTargetingFacet:employers", description: "Current employers" },
-        { facet: "urn:li:adTargetingFacet:degrees", description: "Educational degrees" },
-        { facet: "urn:li:adTargetingFacet:memberBehaviors", description: "Member behaviors" },
-        { facet: "urn:li:adTargetingFacet:schools", description: "Educational institutions" },
-        { facet: "urn:li:adTargetingFacet:companyCategory", description: "Company categories" },
-        { facet: "urn:li:adTargetingFacet:titlesAll", description: "All job titles (current and past)" },
-        { facet: "urn:li:adTargetingFacet:industries", description: "Industries" },
-        { facet: "urn:li:adTargetingFacet:groups", description: "LinkedIn groups" },
-        { facet: "urn:li:adTargetingFacet:firstDegreeConnectionCompanies", description: "Companies with first-degree connections" },
-        { facet: "urn:li:adTargetingFacet:employersAll", description: "All employers (current and past)" },
-        { facet: "urn:li:adTargetingFacet:fieldsOfStudy", description: "Fields of study" }
+        {
+          facet: "urn:li:adTargetingFacet:locations",
+          description: "Geographic locations",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:profileLocations",
+          description: "Profile locations",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:titles",
+          description: "Current job titles",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:titlesPast",
+          description: "Past job titles",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:employersPast",
+          description: "Past employers",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:followedCompanies",
+          description: "Companies followed by users",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:interests",
+          description: "User interests",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:skills",
+          description: "Professional skills",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:employers",
+          description: "Current employers",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:degrees",
+          description: "Educational degrees",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:memberBehaviors",
+          description: "Member behaviors",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:schools",
+          description: "Educational institutions",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:companyCategory",
+          description: "Company categories",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:titlesAll",
+          description: "All job titles (current and past)",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:industries",
+          description: "Industries",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:groups",
+          description: "LinkedIn groups",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:firstDegreeConnectionCompanies",
+          description: "Companies with first-degree connections",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:employersAll",
+          description: "All employers (current and past)",
+        },
+        {
+          facet: "urn:li:adTargetingFacet:fieldsOfStudy",
+          description: "Fields of study",
+        },
       ];
 
       return {
         content: [
           {
             type: "text",
-            text: "Available facets for typeahead suggestions:\n\n" + 
-                  facetsWithDescriptions.map(item => `${item.facet} - ${item.description}`).join("\n") +
-                  "\n\nUse these facets with the get-linkedin-typeahead tool to retrieve suggestions."
-          }
-        ]
+            text:
+              "Available facets for typeahead suggestions:\n\n" +
+              facetsWithDescriptions
+                .map((item) => `${item.facet} - ${item.description}`)
+                .join("\n") +
+              "\n\nUse these facets with the get-linkedin-typeahead tool to retrieve suggestions.",
+          },
+        ],
       };
     } catch (error: unknown) {
       const errorMessage =
@@ -397,9 +540,9 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Failed to list typeahead facets: ${errorMessage}`
-          }
-        ]
+            text: `Failed to list typeahead facets: ${errorMessage}`,
+          },
+        ],
       };
     }
   }
@@ -412,7 +555,12 @@ server.tool(
   "list-linkedin-facet-values",
   "List all LinkedIn facets with predefined values, or filter by a specific facet",
   {
-    facet: z.string().optional().describe("Optional: The specific facet URN to get values for (e.g., urn:li:adTargetingFacet:genders)")
+    facet: z
+      .string()
+      .optional()
+      .describe(
+        "Optional: The specific facet URN to get values for (e.g., urn:li:adTargetingFacet:genders)"
+      ),
   },
   async ({ facet }) => {
     try {
@@ -421,24 +569,24 @@ server.tool(
         value: string;
         description: string;
       };
-      
+
       type FacetInfo = {
         description: string;
         values: FacetValue[];
       };
-      
+
       type FacetsWithValues = {
         [key: string]: FacetInfo;
       };
-      
+
       // Define the complete map of facets with their predefined values
       const facetsWithValues: FacetsWithValues = {
         "urn:li:adTargetingFacet:genders": {
           description: "Gender targeting",
           values: [
             { value: "urn:li:gender:FEMALE", description: "Female" },
-            { value: "urn:li:gender:MALE", description: "Male" }
-          ]
+            { value: "urn:li:gender:MALE", description: "Male" },
+          ],
         },
         "urn:li:adTargetingFacet:ageRanges": {
           description: "Age range targeting",
@@ -446,8 +594,11 @@ server.tool(
             { value: "urn:li:ageRange:(18,24)", description: "18-24 years" },
             { value: "urn:li:ageRange:(25,34)", description: "25-34 years" },
             { value: "urn:li:ageRange:(35,54)", description: "35-54 years" },
-            { value: "urn:li:ageRange:(55,2147483647)", description: "55+ years" }
-          ]
+            {
+              value: "urn:li:ageRange:(55,2147483647)",
+              description: "55+ years",
+            },
+          ],
         },
         "urn:li:adTargetingFacet:seniorities": {
           description: "Seniority targeting",
@@ -461,28 +612,49 @@ server.tool(
             { value: "urn:li:seniority:7", description: "Owner" },
             { value: "urn:li:seniority:8", description: "Partner" },
             { value: "urn:li:seniority:9", description: "Unpaid" },
-            { value: "urn:li:seniority:10", description: "Training" }
-          ]
+            { value: "urn:li:seniority:10", description: "Training" },
+          ],
         },
         "urn:li:adTargetingFacet:revenue": {
           description: "Company revenue targeting",
           values: [
-            { value: "urn:li:revenue:(-2147483647,1)", description: "Less than $1 million" },
+            {
+              value: "urn:li:revenue:(-2147483647,1)",
+              description: "Less than $1 million",
+            },
             { value: "urn:li:revenue:(1,10)", description: "$1-10 million" },
-            { value: "urn:li:revenue:(10,100)", description: "$10-100 million" },
-            { value: "urn:li:revenue:(100,1000)", description: "$100 million-1 billion" },
-            { value: "urn:li:revenue:(1000,2147483647)", description: "More than $1 billion" }
-          ]
+            {
+              value: "urn:li:revenue:(10,100)",
+              description: "$10-100 million",
+            },
+            {
+              value: "urn:li:revenue:(100,1000)",
+              description: "$100 million-1 billion",
+            },
+            {
+              value: "urn:li:revenue:(1000,2147483647)",
+              description: "More than $1 billion",
+            },
+          ],
         },
         "urn:li:adTargetingFacet:growthRate": {
           description: "Company growth rate targeting",
           values: [
-            { value: "urn:li:growthRate:(-2147483647,0)", description: "Negative growth" },
+            {
+              value: "urn:li:growthRate:(-2147483647,0)",
+              description: "Negative growth",
+            },
             { value: "urn:li:growthRate:(0,3)", description: "0-3% growth" },
             { value: "urn:li:growthRate:(3,10)", description: "3-10% growth" },
-            { value: "urn:li:growthRate:(10,20)", description: "10-20% growth" },
-            { value: "urn:li:growthRate:(20,2147483647)", description: "More than 20% growth" }
-          ]
+            {
+              value: "urn:li:growthRate:(10,20)",
+              description: "10-20% growth",
+            },
+            {
+              value: "urn:li:growthRate:(20,2147483647)",
+              description: "More than 20% growth",
+            },
+          ],
         },
         "urn:li:adTargetingFacet:yearsOfExperienceRanges": {
           description: "Years of experience targeting",
@@ -498,22 +670,49 @@ server.tool(
             { value: "urn:li:yearsOfExperience:9", description: "9 years" },
             { value: "urn:li:yearsOfExperience:10", description: "10 years" },
             { value: "urn:li:yearsOfExperience:11", description: "11 years" },
-            { value: "urn:li:yearsOfExperience:12", description: "12+ years" }
-          ]
+            { value: "urn:li:yearsOfExperience:12", description: "12+ years" },
+          ],
         },
         "urn:li:adTargetingFacet:staffCountRanges": {
           description: "Company size targeting",
           values: [
-            { value: "urn:li:staffCountRange:(1,1)", description: "Self-employed" },
-            { value: "urn:li:staffCountRange:(2,10)", description: "2-10 employees" },
-            { value: "urn:li:staffCountRange:(11,50)", description: "11-50 employees" },
-            { value: "urn:li:staffCountRange:(51,200)", description: "51-200 employees" },
-            { value: "urn:li:staffCountRange:(201,500)", description: "201-500 employees" },
-            { value: "urn:li:staffCountRange:(501,1000)", description: "501-1,000 employees" },
-            { value: "urn:li:staffCountRange:(1001,5000)", description: "1,001-5,000 employees" },
-            { value: "urn:li:staffCountRange:(5001,10000)", description: "5,001-10,000 employees" },
-            { value: "urn:li:staffCountRange:(10001,2147483647)", description: "10,001+ employees" }
-          ]
+            {
+              value: "urn:li:staffCountRange:(1,1)",
+              description: "Self-employed",
+            },
+            {
+              value: "urn:li:staffCountRange:(2,10)",
+              description: "2-10 employees",
+            },
+            {
+              value: "urn:li:staffCountRange:(11,50)",
+              description: "11-50 employees",
+            },
+            {
+              value: "urn:li:staffCountRange:(51,200)",
+              description: "51-200 employees",
+            },
+            {
+              value: "urn:li:staffCountRange:(201,500)",
+              description: "201-500 employees",
+            },
+            {
+              value: "urn:li:staffCountRange:(501,1000)",
+              description: "501-1,000 employees",
+            },
+            {
+              value: "urn:li:staffCountRange:(1001,5000)",
+              description: "1,001-5,000 employees",
+            },
+            {
+              value: "urn:li:staffCountRange:(5001,10000)",
+              description: "5,001-10,000 employees",
+            },
+            {
+              value: "urn:li:staffCountRange:(10001,2147483647)",
+              description: "10,001+ employees",
+            },
+          ],
         },
         "urn:li:adTargetingFacet:jobFunctions": {
           description: "Job function targeting",
@@ -522,7 +721,10 @@ server.tool(
             { value: "urn:li:function:2", description: "Administrative" },
             { value: "urn:li:function:3", description: "Arts and Design" },
             { value: "urn:li:function:4", description: "Business Development" },
-            { value: "urn:li:function:5", description: "Community and Social Services" },
+            {
+              value: "urn:li:function:5",
+              description: "Community and Social Services",
+            },
             { value: "urn:li:function:6", description: "Consulting" },
             { value: "urn:li:function:7", description: "Education" },
             { value: "urn:li:function:8", description: "Engineering" },
@@ -530,21 +732,33 @@ server.tool(
             { value: "urn:li:function:10", description: "Finance" },
             { value: "urn:li:function:11", description: "Healthcare Services" },
             { value: "urn:li:function:12", description: "Human Resources" },
-            { value: "urn:li:function:13", description: "Information Technology" },
+            {
+              value: "urn:li:function:13",
+              description: "Information Technology",
+            },
             { value: "urn:li:function:14", description: "Legal" },
             { value: "urn:li:function:15", description: "Marketing" },
-            { value: "urn:li:function:16", description: "Media and Communication" },
-            { value: "urn:li:function:17", description: "Military and Protective Services" },
+            {
+              value: "urn:li:function:16",
+              description: "Media and Communication",
+            },
+            {
+              value: "urn:li:function:17",
+              description: "Military and Protective Services",
+            },
             { value: "urn:li:function:18", description: "Operations" },
             { value: "urn:li:function:19", description: "Product Management" },
-            { value: "urn:li:function:20", description: "Program and Project Management" },
+            {
+              value: "urn:li:function:20",
+              description: "Program and Project Management",
+            },
             { value: "urn:li:function:21", description: "Purchasing" },
             { value: "urn:li:function:22", description: "Quality Assurance" },
             { value: "urn:li:function:23", description: "Real Estate" },
             { value: "urn:li:function:24", description: "Research" },
             { value: "urn:li:function:25", description: "Sales" },
-            { value: "urn:li:function:26", description: "Support" }
-          ]
+            { value: "urn:li:function:26", description: "Support" },
+          ],
         },
         "urn:li:adTargetingFacet:interfaceLocales": {
           description: "Interface language targeting",
@@ -569,9 +783,9 @@ server.tool(
             { value: "urn:li:locale:es_ES", description: "Spanish" },
             { value: "urn:li:locale:sv_SE", description: "Swedish" },
             { value: "urn:li:locale:tr_TR", description: "Turkish" },
-            { value: "urn:li:locale:hi_IN", description: "Hindi" }
-          ]
-        }
+            { value: "urn:li:locale:hi_IN", description: "Hindi" },
+          ],
+        },
       };
 
       // If a specific facet is provided, filter only that facet
@@ -597,7 +811,7 @@ server.tool(
             "urn:li:adTargetingFacet:groups",
             "urn:li:adTargetingFacet:firstDegreeConnectionCompanies",
             "urn:li:adTargetingFacet:employersAll",
-            "urn:li:adTargetingFacet:fieldsOfStudy"
+            "urn:li:adTargetingFacet:fieldsOfStudy",
           ];
 
           if (typeaheadFacets.includes(facet)) {
@@ -605,11 +819,12 @@ server.tool(
               content: [
                 {
                   type: "text",
-                  text: `The facet "${facet}" is a typeahead facet and does not have predefined values. ` +
-                        `Use the "get-linkedin-typeahead" tool to search for values for this facet.\n\n` +
-                        `Example: { "facet": "${facet}", "query": "your search term" }`
-                }
-              ]
+                  text:
+                    `The facet "${facet}" is a typeahead facet and does not have predefined values. ` +
+                    `Use the "get-linkedin-typeahead" tool to search for values for this facet.\n\n` +
+                    `Example: { "facet": "${facet}", "query": "your search term" }`,
+                },
+              ],
             };
           }
 
@@ -617,11 +832,12 @@ server.tool(
             content: [
               {
                 type: "text",
-                text: `Facet "${facet}" not found or does not have predefined values. Available facets with predefined values are:\n\n` +
-                      Object.keys(facetsWithValues).join("\n")
-              }
+                text:
+                  `Facet "${facet}" not found or does not have predefined values. Available facets with predefined values are:\n\n` +
+                  Object.keys(facetsWithValues).join("\n"),
+              },
             ],
-            isError: true
+            isError: true,
           };
         }
 
@@ -630,15 +846,18 @@ server.tool(
           content: [
             {
               type: "text",
-              text: `# ${facet} - ${facetInfo.description}\n\n` +
-                    facetInfo.values.map(v => `- \`${v.value}\` - ${v.description}`).join("\n") +
-                    "\n\n## Usage Example\n\n" +
-                    "When creating a report with the `create-linkedin-report` tool, you can use these values in the audience definition:\n\n" +
-                    "```json\n" +
-                    `{\n  "audienceDefinition": {\n    "include": {\n      "and": [\n        {\n          "or": {\n            "${facet}": [\n              "${facetInfo.values[0].value}"\n            ]\n          }\n        }\n      ]\n    }\n  }\n}\n` +
-                    "```"
-            }
-          ]
+              text:
+                `# ${facet} - ${facetInfo.description}\n\n` +
+                facetInfo.values
+                  .map((v) => `- \`${v.value}\` - ${v.description}`)
+                  .join("\n") +
+                "\n\n## Usage Example\n\n" +
+                "When creating a report with the `create-linkedin-report` tool, you can use these values in the audience definition:\n\n" +
+                "```json\n" +
+                `{\n  "audienceDefinition": {\n    "include": {\n      "and": [\n        {\n          "or": {\n            "${facet}": [\n              "${facetInfo.values[0].value}"\n            ]\n          }\n        }\n      ]\n    }\n  }\n}\n` +
+                "```",
+            },
+          ],
         };
       }
 
@@ -647,20 +866,26 @@ server.tool(
         content: [
           {
             type: "text",
-            text: "# LinkedIn facets with predefined values\n\n" +
-                  "The following facets have predefined values that can be used in audience definitions. " +
-                  "For facets not listed here, use the `get-linkedin-typeahead` tool to search for values.\n\n" +
-                  Object.entries(facetsWithValues).map(([facetUrn, info]) => 
+            text:
+              "# LinkedIn facets with predefined values\n\n" +
+              "The following facets have predefined values that can be used in audience definitions. " +
+              "For facets not listed here, use the `get-linkedin-typeahead` tool to search for values.\n\n" +
+              Object.entries(facetsWithValues)
+                .map(
+                  ([facetUrn, info]) =>
                     `## ${facetUrn} - ${info.description}\n\n` +
-                    info.values.map(v => `- \`${v.value}\` - ${v.description}`).join("\n")
-                  ).join("\n\n") +
-                  "\n\n## Usage Example\n\n" +
-                  "When creating a report with the `create-linkedin-report` tool, you can use these values in the audience definition:\n\n" +
-                  "```json\n" +
-                  `{\n  "audienceDefinition": {\n    "include": {\n      "and": [\n        {\n          "or": {\n            "urn:li:adTargetingFacet:genders": [\n              "urn:li:gender:FEMALE"\n            ]\n          }\n        }\n      ]\n    }\n  }\n}\n` +
-                  "```"
-          }
-        ]
+                    info.values
+                      .map((v) => `- \`${v.value}\` - ${v.description}`)
+                      .join("\n")
+                )
+                .join("\n\n") +
+              "\n\n## Usage Example\n\n" +
+              "When creating a report with the `create-linkedin-report` tool, you can use these values in the audience definition:\n\n" +
+              "```json\n" +
+              `{\n  "audienceDefinition": {\n    "include": {\n      "and": [\n        {\n          "or": {\n            "urn:li:adTargetingFacet:genders": [\n              "urn:li:gender:FEMALE"\n            ]\n          }\n        }\n      ]\n    }\n  }\n}\n` +
+              "```",
+          },
+        ],
       };
     } catch (error: unknown) {
       const errorMessage =
@@ -669,10 +894,10 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Failed to list facet values: ${errorMessage}`
-          }
+            text: `Failed to list facet values: ${errorMessage}`,
+          },
         ],
-        isError: true
+        isError: true,
       };
     }
   }
@@ -726,6 +951,376 @@ server.tool(
           {
             type: "text",
             text: `Failed to initiate device authorization: ${errorMessage}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+/**
+ * MCP Tool: Estimate audience size
+ */
+server.tool(
+  "estimate-linkedin-audience",
+  'Estimate the size of a LinkedIn audience based on the provided audience definition.\
+   IMPORTANT RULES:\
+   1. Audience definition must follow this structure: {"include": {"and": [{"or": {"FACET_URN": ["VALUE1", "VALUE2"]}}]}, "exclude": {"or": {"FACET_URN": ["VALUE1", "VALUE2"]}}} (exclude is optional)\
+   2. All complex boolean expressions must use the format above where each facet is an OR group, and multiple facets are combined with AND\
+   3. Boolean expressions like (A AND B) OR C must be converted to (A OR C) AND (B OR C)\
+   4. Use get-linkedin-typeahead tool to find valid values for facets\
+   5. Use list-linkedin-facet-values tool to see predefined values for facets\
+   6. Use list-linkedin-typeahead-facets tool to see available facets\
+   7. See get-linkedin-audience-definition-examples tool for complete examples of valid audience definitions\
+   Example: {"audienceDefinition": {"include": {"and": [{"or": {"urn:li:adTargetingFacet:titles": ["Software Engineer"]}}]}}}\
+  ',
+  {
+    audienceDefinition: z
+      .object({
+        include: z.object({
+          and: z.array(
+            z
+              .object({
+                or: z
+                  .record(z.array(z.string()))
+                  .describe(
+                    "Object with facet URNs as keys and arrays of facet values as values"
+                  ),
+              })
+              .describe("OR clause for audience targeting")
+          ),
+        }),
+        exclude: z
+          .object({
+            or: z
+              .record(z.array(z.string()))
+              .describe(
+                "Object with facet URNs as keys and arrays of facet values as values"
+              ),
+          })
+          .optional()
+          .describe("Optional exclusion criteria"),
+      })
+      .describe(
+        "The audience definition with inclusion and optional exclusion criteria according to the rules above"
+      ),
+  },
+  async ({ audienceDefinition }) => {
+    try {
+      // Usar JSON.parse y JSON.stringify para validar la estructura del objeto
+      JSON.parse(JSON.stringify(audienceDefinition));
+
+      // Llamar a la función de estimación
+      const data = await estimateAudience(
+        audienceDefinition as JsonAudienceDefinition
+      );
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Estimated audience size: ${data.size.toLocaleString()} members\n\nAudience definition used:\n${JSON.stringify(
+              audienceDefinition,
+              null,
+              2
+            )}`,
+          },
+        ],
+      };
+    } catch (error: unknown) {
+      console.error(error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to estimate audience size: ${errorMessage}\n\nPlease check your audience definition and make sure it follows the required structure. You can use the get-linkedin-audience-definition-examples tool to see valid examples.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+/**
+ * MCP Tool: Get report creation examples
+ */
+server.tool(
+  "get-linkedin-audience-definition-examples",
+  "Get examples of audience definitions for creating LinkedIn reports",
+  {
+    type: z
+      .enum(["simple", "complex", "exclusion", "all"])
+      .optional()
+      .describe(
+        "The type of examples to retrieve: simple, complex, exclusion, or all"
+      ),
+  },
+  async ({ type = "all" }) => {
+    try {
+      // Example 1: Software Engineers in USA
+      const simpleExample = {
+        title: "Software Engineers in USA",
+        audienceDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  // Use URNs for job titles - these would be obtained via get-linkedin-typeahead
+                  "urn:li:adTargetingFacet:titles": ["urn:li:title:100"], // Software Engineer URN
+                },
+              },
+              {
+                or: {
+                  // USA location URN
+                  "urn:li:adTargetingFacet:locations": ["urn:li:geo:103644278"], // United States
+                },
+              },
+            ],
+          },
+        },
+        baselineDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  "urn:li:adTargetingFacet:locations": ["urn:li:geo:103644278"], // United States
+                },
+              },
+            ],
+          },
+        },
+      };
+
+      // Example 2: Marketing professionals in Tech Industry with predefined industry URN
+      const complexExample = {
+        title: "Marketing Managers or Directors in Tech Industry",
+        audienceDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  // These would be obtained via get-linkedin-typeahead
+                  "urn:li:adTargetingFacet:titles": [
+                    "urn:li:title:2435",
+                    "urn:li:title:2436",
+                  ], // Marketing Manager, Marketing Director
+                },
+              },
+              {
+                or: {
+                  // Technology industry URN - this is a predefined value
+                  "urn:li:adTargetingFacet:industries": ["urn:li:industry:4"], // Technology/IT industry
+                },
+              },
+            ],
+          },
+        },
+        baselineDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  "urn:li:adTargetingFacet:industries": ["urn:li:industry:4"], // Technology/IT industry
+                },
+              },
+            ],
+          },
+        },
+      };
+
+      // Example 3: Senior professionals excluding entry level - using predefined seniority URNs
+      const exclusionExample = {
+        title: "Senior Professionals excluding Entry Level",
+        audienceDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  // Predefined seniority URNs
+                  "urn:li:adTargetingFacet:seniorities": [
+                    "urn:li:seniority:2", // Senior
+                    "urn:li:seniority:3", // Manager
+                    "urn:li:seniority:4", // Director
+                  ],
+                },
+              },
+            ],
+          },
+          exclude: {
+            or: {
+              "urn:li:adTargetingFacet:seniorities": ["urn:li:seniority:1"], // Entry level
+            },
+          },
+        },
+        baselineDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  "urn:li:adTargetingFacet:seniorities": [
+                    "urn:li:seniority:1", // Entry level
+                    "urn:li:seniority:2", // Senior
+                    "urn:li:seniority:3", // Manager
+                    "urn:li:seniority:4", // Director
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      };
+
+      // Example 4: Tesla or SpaceX followers aged 25-34
+      const followersExample = {
+        title: "Tesla or SpaceX Followers aged 25-34",
+        audienceDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  "urn:li:adTargetingFacet:ageRanges": [
+                    "urn:li:ageRange:(18,24)",
+                    "urn:li:ageRange:(25,34)",
+                  ],
+                  "urn:li:adTargetingFacet:followedCompanies": [
+                    "urn:li:organization:15564",
+                  ],
+                },
+              },
+              {
+                or: {
+                  "urn:li:adTargetingFacet:followedCompanies": [
+                    "urn:li:organization:1035",
+                  ],
+                },
+              },
+            ],
+          },
+        },
+        baselineDefinition: {
+          include: {
+            and: [
+              {
+                or: {
+                  "urn:li:adTargetingFacet:ageRanges": [
+                    "urn:li:ageRange:(25,34)", // 25-34 years
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      };
+
+      const booleanTransformationExplanation = `
+When users request complex Boolean expressions like "(A AND B) OR C", you must transform them using the distributive law:
+(A AND B) OR C → (A OR C) AND (B OR C)
+
+Example transformation:
+1. Original request: "(Software Engineers AND USA) OR Marketing Professionals"
+2. Transformed structure:
+   {
+     "include": {
+       "and": [
+         {
+           "or": {
+             "urn:li:adTargetingFacet:titles": ["Software Engineer", "Marketing Professional"]
+           }
+         },
+         {
+           "or": {
+             "urn:li:adTargetingFacet:locations": ["urn:li:geo:103644278", "urn:li:geo:103644278"]
+           }
+         }
+       ]
+     }
+   }
+
+This is necessary because LinkedIn's API requires this specific nested structure where:
+- Multiple values for the same facet are combined with OR
+- Different facets are combined with AND
+- There's no direct way to represent (A AND B) OR C
+`;
+
+      let responseContent = "";
+
+      switch (type) {
+        case "simple":
+          responseContent = `# Simple Example\n\n\`\`\`json\n${JSON.stringify(
+            simpleExample,
+            null,
+            2
+          )}\n\`\`\``;
+          break;
+        case "complex":
+          responseContent = `# Complex Example\n\n\`\`\`json\n${JSON.stringify(
+            complexExample,
+            null,
+            2
+          )}\n\`\`\``;
+          break;
+        case "exclusion":
+          responseContent = `# Example with Exclusion\n\n\`\`\`json\n${JSON.stringify(
+            exclusionExample,
+            null,
+            2
+          )}\n\`\`\``;
+          break;
+        case "all":
+        default:
+          responseContent = `# LinkedIn Report Definition Examples
+
+## Simple Example
+\`\`\`json
+${JSON.stringify(simpleExample, null, 2)}
+\`\`\`
+
+## Complex Example
+\`\`\`json
+${JSON.stringify(complexExample, null, 2)}
+\`\`\`
+
+## Example with Exclusion
+\`\`\`json
+${JSON.stringify(exclusionExample, null, 2)}
+\`\`\`
+
+## Tesla or SpaceX Followers Example
+\`\`\`json
+${JSON.stringify(followersExample, null, 2)}
+\`\`\`
+
+## Boolean Transformation Rules
+${booleanTransformationExplanation}
+
+## Important Notes
+1. Both audience and baseline definitions are mandatory
+2. Use list-linkedin-typeahead-facets to see available facets
+3. Use get-linkedin-typeahead to find values for a specific facet
+4. Use list-linkedin-facet-values to see predefined values for certain facets
+`;
+          break;
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: responseContent,
+          },
+        ],
+      };
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Failed to retrieve examples: ${errorMessage}`,
           },
         ],
       };

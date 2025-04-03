@@ -6,7 +6,9 @@ import {
   GetReportInsightsResponse, 
   GetReportCategoriesResponse, 
   GetTypeaheadSuggestionsResponse,
-  AccountResponse
+  AccountResponse,
+  EstimateAudienceResponse,
+  JsonAudienceDefinition
 } from './types.js';
 
 /**
@@ -124,6 +126,20 @@ export async function getAccountDetails(): Promise<AccountResponse> {
   
   const response = await makeAuthenticatedRequest<AccountResponse>(endpoint, {
     method: 'GET',
+  });
+
+  return response;
+}
+
+/**
+ * Estimate audience size based on audience definition
+ */
+export async function estimateAudience(audienceDefinition: JsonAudienceDefinition): Promise<EstimateAudienceResponse> {
+  const endpoint = '/estimation';
+  
+  const response = await makeAuthenticatedRequest<EstimateAudienceResponse>(endpoint, {
+    method: 'POST',
+    body: JSON.stringify({ audienceDefinition }),
   });
 
   return response;
